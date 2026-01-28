@@ -2,7 +2,7 @@
 
 namespace App\Providers;
 
-use App\ThumbnailGenerationService;
+use App\Services\PdfConversionService;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -14,8 +14,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        $this->app->bind('ThumbnailGenerationService', function () {
-            return new ThumbnailGenerationService();
+        $this->app->singleton(PdfConversionService::class, function () {
+            return new PdfConversionService();
         });
     }
 

@@ -17,7 +17,8 @@ class CreateDocumentsTable extends Migration
             $table->bigIncrements('id');
             $table->string('name');
             $table->string('path');
-            $table->string('thumbnail');
+            $table->string('pdf_path')->nullable();
+            $table->string('file_type')->nullable();
             $table->timestamps();
         });
     }

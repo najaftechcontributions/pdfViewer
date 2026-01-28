@@ -3,8 +3,6 @@
 namespace Tests\Feature;
 
 use App\Document;
-use App\Http\Controllers\DocumentsController;
-use App\Http\Requests\CreateDocumentRequest;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -28,57 +26,65 @@ class DocumentControllerTest extends TestCase
         $response->assertStatus(200);
     }
 
-    public function testDocumentUpload()
+    public function testImageUpload()
     {
-        $file = UploadedFile::createFromBase(
-            (new \Symfony\Component\HttpFoundation\File\UploadedFile(
-                Storage::disk('public')->path('testing/documents/sample-pdf-file.pdf'),
-                'sample-pdf-file.pdf',
-                'application/pdf'
-            ))
-        );
+        Storage::fake('public');
 
-        $request = new CreateDocumentRequest();
-        $request->files->set('document', $file);
+        $file = UploadedFile::fake()->image('test-image.jpg');
 
-        (new DocumentsController(app('ThumbnailGenerationService')))->create($request);
-
-        $document = Document::where('name', '=', 'sample-pdf-file.pdf')->firstOrFail();
-
-        $this->assertDatabaseHas('documents', [
-            'name' => $document->name
+        $response = $this->post(route('documents.create'), [
+            'document' => $file
         ]);
+
+        $response->assertRedirect(route('documents.index'));
+        $response->assertSessionHas('success');
+
+        $document = Document::where('name', 'test-image.jpg')->first();
+
+        $this->assertNotNull($document);
+        $this->assertEquals('image', $document->file_type);
 
         Storage::disk('public')->assertExists($document->path);
-        Storage::disk('public')->assertExists($document->thumbnail);
-
-        Storage::delete([
-            Storage::disk('public')->delete($document->path),
-            Storage::disk('public')->delete($document->thumbnail)
-        ]);
+        Storage::disk('public')->assertExists($document->pdf_path);
     }
 
     public function testDocumentDestroy()
     {
-        $file = UploadedFile::createFromBase(
-            (new \Symfony\Component\HttpFoundation\File\UploadedFile(
-                Storage::disk('public')->path('testing/documents/sample-pdf-file.pdf'),
-                'sample-pdf-file.pdf',
-                'application/pdf'
-            ))
-        );
+        Storage::fake('public');
 
-        $request = new CreateDocumentRequest();
-        $request->files->set('document', $file);
+        $file = UploadedFile::fake()->image('test-image.jpg');
 
-        $controller = new DocumentsController(app('ThumbnailGenerationService'));
-        $controller->create($request);
+        $this->post(route('documents.create'), [
+            'document' => $file
+        ]);
 
-        $document = Document::where('name', '=', 'sample-pdf-file.pdf')->firstOrFail();
+        $document = Document::where('name', 'test-image.jpg')->firstOrFail();
 
-        $controller->destroy($document);
+        $documentPath = $document->path;
+        $pdfPath = $document->pdf_path;
 
-        Storage::disk('public')->assertMissing($document->path);
-        Storage::disk('public')->assertMissing($document->thumbnail);
+        $response = $this->delete(route('documents.destroy', $document));
+
+        $response->assertRedirect(route('documents.index'));
+
+        $this->assertDatabaseMissing('documents', [
+            'id' => $document->id
+        ]);
+
+        Storage::disk('public')->assertMissing($documentPath);
+        Storage::disk('public')->assertMissing($pdfPath);
+    }
+
+    public function testInvalidFileTypeRejected()
+    {
+        Storage::fake('public');
+
+        $file = UploadedFile::fake()->create('document.txt', 100);
+
+        $response = $this->post(route('documents.create'), [
+            'document' => $file
+        ]);
+
+        $response->assertSessionHasErrors('document');
     }
 }

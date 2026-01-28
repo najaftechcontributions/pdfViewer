@@ -4,52 +4,84 @@ namespace App\Http\Controllers;
 
 use App\Document;
 use App\Http\Requests\CreateDocumentRequest;
-use App\ThumbnailGenerationService;
+use App\Services\PdfConversionService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 class DocumentsController extends Controller
 {
+    private PdfConversionService $pdfConversionService;
 
-    private ThumbnailGenerationService $thumbnailGenerationService;
-
-    public function __construct(ThumbnailGenerationService $thumbnailGenerationService)
+    public function __construct(PdfConversionService $pdfConversionService)
     {
-        $this->thumbnailGenerationService = $thumbnailGenerationService;
+        $this->pdfConversionService = $pdfConversionService;
     }
 
     public function index(): View
     {
-        $documents = Document::simplePaginate(20);
+        $documents = Document::latest()->simplePaginate(20);
 
         return view('documents')->with('documents', $documents);
     }
 
     public function create(CreateDocumentRequest $request): RedirectResponse
     {
-        $fileName = $request->file('document')->getClientOriginalName();
-        $hashName = substr($request->file('document')->hashName(), 0, -3);
+        try {
+            $file = $request->file('document');
+            $fileName = $file->getClientOriginalName();
+            $extension = $file->getClientOriginalExtension();
 
-        $documentPath = $request->file('document')->store('files/documents', 'public');
+            // Determine file type
+            $fileType = $this->pdfConversionService->getFileType($extension);
 
-        $document = new Document([
-            'name' => $fileName,
-            'path' => $documentPath,
-        ]);
+            if (!$fileType) {
+                return redirect(route('documents.index'))
+                    ->with('error', 'Unsupported file type');
+            }
 
-        $thumbnailPath = $this->thumbnailGenerationService->generate($document, $hashName);
+            // Generate unique hash name
+            $hashName = substr($file->hashName(), 0, -strlen($extension) - 1);
 
-        $document->thumbnail = $thumbnailPath;
+            // Store original file
+            $documentPath = $file->storeAs(
+                'files/documents',
+                $hashName . '.' . $extension,
+                'public'
+            );
 
-        $document->save();
+            // Convert to PDF (skip if already PDF)
+            if ($fileType === 'pdf') {
+                // For PDF files, use the same path for both original and PDF
+                $pdfPath = $documentPath;
+            } else {
+                // Convert other file types to PDF
+                $sourcePath = Storage::disk('public')->path($documentPath);
+                $pdfPath = $this->pdfConversionService->convertToPdf($sourcePath, $fileType, $hashName);
+            }
 
-        return redirect(route('documents.index'));
+            // Create document record
+            $document = Document::create([
+                'name' => $fileName,
+                'path' => $documentPath,
+                'pdf_path' => $pdfPath,
+                'file_type' => $fileType,
+            ]);
+
+            return redirect(route('documents.index'))
+                ->with('success', 'Document uploaded and converted successfully!');
+
+        } catch (\Exception $e) {
+            return redirect(route('documents.index'))
+                ->with('error', 'Error uploading document: ' . $e->getMessage());
+        }
     }
 
     public function destroy(Document $document): RedirectResponse
     {
         $document->delete();
 
-        return redirect(route('documents.index'));
+        return redirect(route('documents.index'))
+            ->with('success', 'Document deleted successfully!');
     }
 }

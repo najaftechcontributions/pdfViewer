@@ -14,7 +14,20 @@ class CreateDocumentRequest extends FormRequest
     public function rules()
     {
         return [
-            'document' => ['required', 'mimes:pdf', 'max:12000'],
+            'document' => [
+                'required',
+                'file',
+                'mimes:pdf,doc,docx,rtf,odt,xls,xlsx,csv,ods,jpg,jpeg,png,gif,bmp,webp',
+                'max:20000' // 20MB max
+            ],
+        ];
+    }
+
+    public function messages()
+    {
+        return [
+            'document.mimes' => 'Please upload a PDF, Word document, Excel spreadsheet, or image file.',
+            'document.max' => 'File size must not exceed 20MB.',
         ];
     }
 }
