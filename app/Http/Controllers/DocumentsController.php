@@ -9,6 +9,12 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
+/**
+ * Document Controller
+ *
+ * Handles document upload, PDF conversion, and viewing.
+ * Uses PdfConversionService for converting Word, Excel, and Image files to PDF.
+ */
 class DocumentsController extends Controller
 {
     private PdfConversionService $pdfConversionService;
@@ -18,13 +24,21 @@ class DocumentsController extends Controller
         $this->pdfConversionService = $pdfConversionService;
     }
 
+    /**
+     * Display document list view
+     */
     public function index(): View
     {
         $documents = Document::latest()->simplePaginate(20);
-
         return view('documents')->with('documents', $documents);
     }
 
+    /**
+     * Upload and convert document to PDF
+     *
+     * Supports: Word (.doc, .docx), Excel (.xls, .xlsx), Images (.jpg, .png, etc.)
+     * Uses image-based conversion for Word files for best design preservation
+     */
     public function create(CreateDocumentRequest $request): RedirectResponse
     {
         try {
@@ -32,12 +46,12 @@ class DocumentsController extends Controller
             $fileName = $file->getClientOriginalName();
             $extension = $file->getClientOriginalExtension();
 
-            // Determine file type
+            // Auto-detect file type from extension
             $fileType = $this->pdfConversionService->getFileType($extension);
 
             if (!$fileType) {
                 return redirect(route('documents.index'))
-                    ->with('error', 'Unsupported file type');
+                    ->with('error', 'Unsupported file type: ' . $extension);
             }
 
             // Generate unique hash name
@@ -50,18 +64,16 @@ class DocumentsController extends Controller
                 'public'
             );
 
-            // Convert to PDF (skip if already PDF)
+            // Convert to PDF using image-based method for better design preservation
             if ($fileType === 'pdf') {
-                // For PDF files, use the same path for both original and PDF
                 $pdfPath = $documentPath;
             } else {
-                // Convert other file types to PDF
                 $sourcePath = Storage::disk('public')->path($documentPath);
                 $pdfPath = $this->pdfConversionService->convertToPdf($sourcePath, $fileType, $hashName);
             }
 
-            // Create document record
-            $document = Document::create([
+            // Save document record
+            Document::create([
                 'name' => $fileName,
                 'path' => $documentPath,
                 'pdf_path' => $pdfPath,
@@ -69,18 +81,20 @@ class DocumentsController extends Controller
             ]);
 
             return redirect(route('documents.index'))
-                ->with('success', 'Document uploaded and converted successfully!');
+                ->with('success', 'Document uploaded and converted to PDF successfully!');
 
         } catch (\Exception $e) {
             return redirect(route('documents.index'))
-                ->with('error', 'Error uploading document: ' . $e->getMessage());
+                ->with('error', 'Conversion failed: ' . $e->getMessage());
         }
     }
 
+    /**
+     * Delete document and its files
+     */
     public function destroy(Document $document): RedirectResponse
     {
         $document->delete();
-
         return redirect(route('documents.index'))
             ->with('success', 'Document deleted successfully!');
     }
